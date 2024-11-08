@@ -15,6 +15,7 @@ define('CAR_RENTAL_PLUGIN_URL', plugin_dir_url(__FILE__));
 include  plugin_dir_path(__FILE__) . 'includes/constants.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin-config.php';
+require_once plugin_dir_path(__FILE__) . 'includes/users-cellphone.php';
 
 
 
@@ -53,6 +54,15 @@ function get_rental_cars()
     return new WP_REST_Response($formatted_cars, 200);
 }
 
+function calculate_price_per_day($start_date, $end_date, $daily_price)
+{
+    $price_per_day = ($daily_price == 0) ? 1 : ceil($daily_price);
+    $start_date_obj  = new DateTime($start_date);
+    $end_date_obj  = new DateTime($end_date);
+    $days_interval = $start_date_obj->diff($end_date_obj)->days;
+    return ceil($price_per_day) * $days_interval;
+}
+
 function book_rental_car(WP_REST_Request $request)
 {
     // Validate input parameters
@@ -60,6 +70,13 @@ function book_rental_car(WP_REST_Request $request)
     $start_date = $request->get_param('start_date');
     $end_date = $request->get_param('end_date');
     $province = $request->get_param('province');
+    $current_user = wp_get_current_user();
+
+    if (empty(get_user_meta($current_user->ID, 'cellphone', true))) {
+        return new WP_REST_Response(array(
+            'error' => 'cellphone-not-found'
+        ), 400);
+    }
 
     // Check if all fields are provided
     if (empty($car_id) || empty($start_date) || empty($end_date) || empty($province)) {
@@ -100,9 +117,9 @@ function book_rental_car(WP_REST_Request $request)
             'error' => 'Car is not available for the selected dates.'
         ), 400);
     }
-    $date_interval = $start_date_obj->diff($end_date_obj)->days;
+
     // Perform booking logic here
-    $booking_successful = create_car_booking($car_id, $start_date, $end_date, $date_interval, $province);
+    $booking_successful = create_car_booking($car_id, $start_date, $end_date, $province);
 
     if ($booking_successful) {
         return new WP_REST_Response(array('message' => 'Booking successful'), 200);
@@ -160,7 +177,7 @@ function check_car_availability($car_id, $start_date = null, $end_date = null)
     return false;
 }
 
-function create_car_booking($car_id, $start_date, $end_date, $date_interval, $province)
+function create_car_booking($car_id, $start_date, $end_date, $province)
 {
     global $iran_provinces;
     $product = wc_get_product($car_id);
@@ -191,7 +208,7 @@ function create_car_booking($car_id, $start_date, $end_date, $date_interval, $pr
     // Save custom fields for the booking
     update_post_meta($booking_id, 'car_id', $car_id);
     update_post_meta($booking_id, 'car_name', $product->get_name());
-    update_post_meta($booking_id, 'reserve_price', $product->get_price() * $date_interval);
+    update_post_meta($booking_id, 'reserve_price', calculate_price_per_day($start_date, $end_date, $product->get_price()));
     update_post_meta($booking_id, 'start_date', $start_date);
     update_post_meta($booking_id, 'end_date', $end_date);
     update_post_meta($booking_id, 'province', $province_details);
