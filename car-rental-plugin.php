@@ -7,95 +7,23 @@ Author: Your Name
 Author URI: https://yourwebsite.com
 */
 
-add_action('rest_api_init', function () {
-    register_rest_route('car-rental/v1', '/cars', array(
-        'methods' => 'GET',
-        'callback' => 'get_rental_cars',
-        'permission_callback' => '__return_true'
-    ));
+// Define constants
+define('CAR_RENTAL_PLUGIN_VERSION', '1.0');
+define('CAR_RENTAL_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('CAR_RENTAL_PLUGIN_URL', plugin_dir_url(__FILE__));
 
-    register_rest_route('car-rental/v1', '/book', array(
-        'methods' => 'POST',
-        'callback' => 'book_rental_car',
-        'permission_callback' => '__return_true'
-    ));
-});
+include  plugin_dir_path(__FILE__) . 'includes/constants.php';
+require_once plugin_dir_path(__FILE__) . 'includes/helpers.php';
+require_once plugin_dir_path(__FILE__) . 'includes/admin-config.php';
 
-// Register Custom Post Type for Bookings
-function create_booking_post_type() {
-    $labels = array(
-        'name'                  => _x('Bookings', 'Post Type General Name', 'text_domain'),
-        'singular_name'         => _x('Booking', 'Post Type Singular Name', 'text_domain'),
-        'menu_name'             => __('Bookings', 'text_domain'),
-        'name_admin_bar'        => __('Booking', 'text_domain'),
-        'add_new'               => __('Add New', 'text_domain'),
-        'add_new_item'          => __('Add New Booking', 'text_domain'),
-        'new_item'              => __('New Booking', 'text_domain'),
-        'edit_item'             => __('Edit Booking', 'text_domain'),
-        'view_item'             => __('View Booking', 'text_domain'),
-        'all_items'             => __('All Bookings', 'text_domain'),
-        'search_items'          => __('Search Bookings', 'text_domain'),
-        'not_found'             => __('No bookings found', 'text_domain'),
-        'not_found_in_trash'    => __('No bookings found in Trash', 'text_domain'),
-    );
 
-    $args = array(
-        'label'                 => __('Booking', 'text_domain'),
-        'description'           => __('Post Type for Car Bookings', 'text_domain'),
-        'labels'                => $labels,
-        'supports'              => array('title', 'editor', 'custom-fields'), // Add custom fields support
-        'hierarchical'          => false,
-        'public'                => true,
-        'show_ui'              => true,
-        'show_in_menu'          => true,
-        'menu_position'         => 5,
-        'show_in_admin_bar'     => true,
-        'show_in_nav_menus'     => true,
-        'can_export'            => true,
-        'has_archive'           => true,
-        'exclude_from_search'   => false,
-        'publicly_queryable'    => true,
-        'capability_type'       => 'post',
-    );
 
-    register_post_type('booking', $args);
-}
-add_action('init', 'create_booking_post_type');
 
-// Add custom columns to the Booking post type
-function set_custom_edit_booking_columns($columns) {
-    $columns['start_date'] = __('Start Date', 'text_domain');
-    $columns['end_date'] = __('End Date', 'text_domain');
-    return $columns;
-}
-add_filter('manage_booking_posts_columns', 'set_custom_edit_booking_columns');
-
-// Populate the custom columns with data
-function custom_booking_column($column, $post_id) {
-    switch ($column) {
-        case 'start_date':
-            $start_date = get_post_meta($post_id, 'start_date', true);
-            echo esc_html($start_date);
-            break;
-        case 'end_date':
-            $end_date = get_post_meta($post_id, 'end_date', true);
-            echo esc_html($end_date);
-            break;
-    }
-}
-add_action('manage_booking_posts_custom_column', 'custom_booking_column', 10, 2);
-
-function get_rental_cars() {
+function get_rental_cars()
+{
     $args = array(
         'post_type' => 'product',
         'posts_per_page' => -1,
-        'tax_query' => array(
-            array(
-                'taxonomy' => 'product_cat',
-                'field' => 'slug',
-                'terms' => 'rental-cars'
-            )
-        )
     );
 
     $cars = get_posts($args);
@@ -125,14 +53,16 @@ function get_rental_cars() {
     return new WP_REST_Response($formatted_cars, 200);
 }
 
-function book_rental_car(WP_REST_Request $request) {
+function book_rental_car(WP_REST_Request $request)
+{
     // Validate input parameters
     $car_id = $request->get_param('car_id');
     $start_date = $request->get_param('start_date');
     $end_date = $request->get_param('end_date');
+    $province = $request->get_param('province');
 
     // Check if all fields are provided
-    if (empty($car_id) || empty($start_date) || empty($end_date)) {
+    if (empty($car_id) || empty($start_date) || empty($end_date) || empty($province)) {
         return new WP_REST_Response(array(
             'error' => 'All fields are required.'
         ), 400);
@@ -170,9 +100,9 @@ function book_rental_car(WP_REST_Request $request) {
             'error' => 'Car is not available for the selected dates.'
         ), 400);
     }
-
+    $date_interval = $start_date_obj->diff($end_date_obj)->days;
     // Perform booking logic here
-    $booking_successful = create_car_booking($car_id, $start_date, $end_date);
+    $booking_successful = create_car_booking($car_id, $start_date, $end_date, $date_interval, $province);
 
     if ($booking_successful) {
         return new WP_REST_Response(array('message' => 'Booking successful'), 200);
@@ -181,13 +111,8 @@ function book_rental_car(WP_REST_Request $request) {
     }
 }
 
-// Helper function to validate date format
-function validate_date_format($date) {
-    $d = DateTime::createFromFormat('Y-m-d H:i:s', $date);
-    return $d && $d->format('Y-m-d H:i:s') === $date;
-}
-
-function check_car_availability($car_id, $start_date = null, $end_date = null) {
+function check_car_availability($car_id, $start_date = null, $end_date = null)
+{
     // If no dates are provided, we assume we are checking availability for the current date
     if ($start_date === null || $end_date === null) {
         return true; // No need to check availability if no dates are provided
@@ -208,16 +133,16 @@ function check_car_availability($car_id, $start_date = null, $end_date = null) {
                 'compare' => '='
             ),
             array(
-                'relation' => 'OR',
+                'relation' => 'AND',
                 array(
-                    'key' => 'end_date', // Assuming you have a meta field for end date
-                    'value' => $start_date_obj->format('Y-m-d H:i:s'),
-                    'compare' => '<', // Existing booking ends before the new booking starts
+                    'key' => 'end_date', // Existing booking ends after the new booking starts
+                    'value' => $end_date_obj->format('Y-m-d H:i:s'),
+                    'compare' => '<=', // Existing booking ends after the new booking starts
                 ),
                 array(
-                    'key' => 'start_date', // Assuming you have a meta field for start date
-                    'value' => $end_date_obj->format('Y-m-d H:i:s'),
-                    'compare' => '>', // Existing booking starts after the new booking ends
+                    'key' => 'start_date', // Existing booking starts before the new booking ends
+                    'value' =>  $start_date_obj->format('Y-m-d H:i:s'),
+                    'compare' => '>=', // Existing booking starts before the new booking ends
                 ),
             ),
         ),
@@ -235,14 +160,19 @@ function check_car_availability($car_id, $start_date = null, $end_date = null) {
     return false;
 }
 
-function create_car_booking($car_id, $start_date, $end_date) {
+function create_car_booking($car_id, $start_date, $end_date, $date_interval, $province)
+{
+    global $iran_provinces;
+    $product = wc_get_product($car_id);
     // Create a new booking post
     $booking_data = array(
-        'post_title'   => 'Booking for Car ID ' . $car_id,
-        'post_content' => 'Booking from ' . $start_date . ' to ' . $end_date,
+        'post_title'   => 'درخواست رزرو ' . $product->get_name(),
+        'post_content' => 'درخواست رزرو از تاریخ ' . $start_date . ' به ' . $end_date,
         'post_status'  => 'publish',
         'post_type'    => 'booking',
     );
+
+
 
     // Insert the booking post into the database
     $booking_id = wp_insert_post($booking_data);
@@ -252,10 +182,77 @@ function create_car_booking($car_id, $start_date, $end_date) {
         return false; // Booking creation failed
     }
 
+    $province_details = getArrayItem($iran_provinces, intval($province));
+
+    if ($province_details == null) {
+        return false;
+    }
+
     // Save custom fields for the booking
     update_post_meta($booking_id, 'car_id', $car_id);
+    update_post_meta($booking_id, 'car_name', $product->get_name());
+    update_post_meta($booking_id, 'reserve_price', $product->get_price() * $date_interval);
     update_post_meta($booking_id, 'start_date', $start_date);
     update_post_meta($booking_id, 'end_date', $end_date);
+    update_post_meta($booking_id, 'province', $province_details);
 
     return true; // Booking created successfully
 }
+
+function get_booked_dates($car_id)
+{
+    // Query to get existing bookings for the car
+    $args = array(
+        'post_type' => 'booking',
+        'post_status' => 'publish',
+        'meta_query' => array(
+            array(
+                'key' => 'car_id',
+                'value' => $car_id,
+                'compare' => '='
+            ),
+        ),
+        'posts_per_page' => -1, // Get all bookings
+    );
+
+    $bookings = get_posts($args);
+    $booked_dates = array();
+
+    // Loop through each booking and collect the dates
+    foreach ($bookings as $booking) {
+        $start_date = get_post_meta($booking->ID, 'start_date', true);
+        $end_date = get_post_meta($booking->ID, 'end_date', true);
+
+        // Convert dates to DateTime objects
+        $start_date_obj = new DateTime($start_date);
+        $end_date_obj = new DateTime($end_date);
+
+        // Create an interval of dates from start to end
+        $interval = new DateInterval('P1D'); // 1 day interval
+        $period = new DatePeriod($start_date_obj, $interval, $end_date_obj->modify('+1 day')); // Include end date
+
+        // Add each date to the booked_dates array
+        foreach ($period as $date) {
+            $booked_dates[] = $date->format('Y-m-d'); // Format the date as needed
+        }
+    }
+
+    return array_unique($booked_dates); // Return unique booked dates
+}
+
+// Callback function to retrieve booked dates
+function get_booked_dates_api($data)
+{
+    $car_id = $data['car_id'];
+    $booked_dates = get_booked_dates($car_id); // Use the previously defined function
+    return rest_ensure_response($booked_dates);
+}
+
+function get_provices()
+{
+    global $iran_provinces;
+    return new WP_REST_Response($iran_provinces, 200);
+}
+
+// require_once plugin_dir_path(__FILE__) . 'includes/admin-functions.php';
+require_once plugin_dir_path(__FILE__) . 'routes.php';
