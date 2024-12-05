@@ -25,3 +25,11 @@ add_action('rest_api_init', function () {
         'permission_callback' => '__return_true', // Adjust permissions as needed
     ));
 });
+
+add_action('rest_api_init', function () {
+    register_rest_route('car-rental/v1', '/register', array(
+        'methods' => 'POST',
+        'callback' => 'custom_user_registration',
+        'permission_callback' => '__return_true',
+    ));
+});

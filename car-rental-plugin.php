@@ -16,8 +16,9 @@ include  plugin_dir_path(__FILE__) . 'includes/constants.php';
 require_once plugin_dir_path(__FILE__) . 'includes/helpers.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin-config.php';
 require_once plugin_dir_path(__FILE__) . 'includes/users-cellphone.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
-
+use \Firebase\JWT\JWT;
 
 
 function get_rental_cars()
@@ -269,6 +270,66 @@ function get_provices()
 {
     global $iran_provinces;
     return new WP_REST_Response($iran_provinces, 200);
+}
+
+function custom_user_registration(WP_REST_Request $request)
+{
+    $username = sanitize_user($request->get_param('username'));
+    $password = sanitize_text_field($request->get_param('password'));
+    $email = sanitize_email($request->get_param('email'));
+
+    // Validate email format
+    if (!filter_var($request->get_param('email'), FILTER_VALIDATE_EMAIL)) {
+        return new WP_Error('invalid_email', 'Email format is invalid. Please provide a valid email address.', array('status' => 400));
+    }
+
+    if (empty($username) || empty($password) || empty($email)) {
+        return new WP_Error('missing_fields', 'Please provide all required fields.', array('status' => 400));
+    }
+
+    if (username_exists($username) || email_exists($email)) {
+        return new WP_Error('user_exists', 'Username or email already exists.', array('status' => 400));
+    }
+
+    $user_id = wp_create_user($username, $password, $email);
+
+    if (is_wp_error($user_id)) {
+        return new WP_Error('registration_failed', 'User  registration failed.', array('status' => 500));
+    }
+
+    // Optionally, you can set the user role
+    $user = new WP_User($user_id);
+    $user->set_role('subscriber');
+
+    // Generate JWT token
+    $token = generate_jwt_token($user_id);
+
+    return array(
+        'token' => $token,
+        'user_id' => $user_id,
+    );
+}
+
+function generate_jwt_token($user_id)
+{
+    $secret_key = JWT_AUTH_SECRET_KEY; // Replace with your secret key
+    $issuer = get_bloginfo('url'); // Issuer
+    $audience = get_bloginfo('url'); // Audience
+    $issued_at = time(); // Issued at
+    $expiration_time = $issued_at + (DAY_IN_SECONDS * 7); // jwt valid for 1 week
+
+    $payload = array(
+        'iat' => $issued_at,
+        'exp' => $expiration_time,
+        'iss' => $issuer,
+        'aud' => $audience,
+        'data' => array(
+            'user' => array('id' => $user_id)
+        ),
+    );
+
+    $jwt = JWT::encode($payload, $secret_key, 'HS256');
+    return $jwt;
 }
 
 // require_once plugin_dir_path(__FILE__) . 'includes/admin-functions.php';
