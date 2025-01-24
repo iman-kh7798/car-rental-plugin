@@ -52,6 +52,7 @@ function set_custom_edit_booking_columns($columns)
     $columns['province'] = __('استان', 'text_domain');
     $columns['start_date'] = __('تاریخ شروع', 'text_domain');
     $columns['end_date'] = __('تاریخ پایان', 'text_domain');
+    $columns['tracking_id'] = __('شماره پیگیری', 'text_domain');
     return $columns;
 }
 
@@ -65,6 +66,7 @@ function custom_booking_column($column, $post_id)
     $province = get_post_meta($post_id, 'province', true);
     $start_date = get_post_meta($post_id, 'start_date', true);
     $end_date = get_post_meta($post_id, 'end_date', true);
+    $tracking_id = get_post_meta($post_id, 'tracking_id', true);
     $date_interval = get_date_interval($start_date, $end_date);
 
     switch ($column) {
@@ -82,6 +84,9 @@ function custom_booking_column($column, $post_id)
             break;
         case 'end_date':
             echo esc_html($end_date);
+            break;
+        case 'tracking_id':
+            echo esc_html($tracking_id);
             break;
     }
 }

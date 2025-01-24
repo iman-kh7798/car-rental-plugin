@@ -13,6 +13,18 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'custom_permission_callback'
     ));
 
+    register_rest_route('car-rental/v1', '/track-order', array(
+        'methods' => 'POST',
+        'callback' => 'get_tracking_status',
+        'permission_callback' => 'custom_permission_callback'
+    ));
+
+    register_rest_route('car-rental/v1', '/orders', array(
+        'methods' => 'GET',
+        'callback' => 'get_user_booking_details',
+        'permission_callback' => 'custom_permission_callback'
+    ));
+
     register_rest_route('car-rental/v1', '/booked-dates/(?P<car_id>\d+)', array(
         'methods' => 'GET',
         'callback' => 'get_booked_dates_api',

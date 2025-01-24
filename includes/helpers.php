@@ -29,3 +29,8 @@ function getArrayItem($arr, $id)
 
     return !empty($filtered) ? array_shift($filtered) : null; // Return the first found province or null
 }
+
+function generate_tracking_id()
+{
+    return strtoupper(uniqid());
+}

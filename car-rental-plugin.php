@@ -120,12 +120,136 @@ function book_rental_car(WP_REST_Request $request)
     }
 
     // Perform booking logic here
-    $booking_successful = create_car_booking($car_id, $start_date, $end_date, $province);
+    $tracking_id = create_car_booking($car_id, $start_date, $end_date, $province, $current_user);
 
-    if ($booking_successful) {
-        return new WP_REST_Response(array('message' => 'Booking successful'), 200);
+    if ($tracking_id) {
+        return new WP_REST_Response(array('message' => 'Booking successful', 'tracking_id' => $tracking_id), 200);
     } else {
         return new WP_REST_Response(array('error' => 'Booking failed. Please try again later.'), 500);
+    }
+}
+
+function get_user_booking_details(WP_REST_Request $request)
+{
+    $current_user_id = get_current_user_id();
+
+    if ($current_user_id === 0) {
+        return new WP_Error('not_logged_in', 'User  is not logged in', array('status' => 401));
+    }
+
+
+    $args = array(
+        'post_type' => 'booking', // Your custom post type
+        'post_status' => 'publish', // Only get published bookings
+        'meta_query' => array(
+            array(
+                'key' => 'user_id', // The meta key where user ID is stored
+                'value' => $current_user_id,
+                'compare' => '='
+            )
+        )
+    );
+
+    $query = new WP_Query($args);
+
+    if ($query->have_posts()) {
+        $data = array();
+
+        // Loop through the bookings and format the data
+        foreach ($query->posts as $post) {
+            $car_id = get_post_meta($post->ID, 'car_id', true);
+            $product = wc_get_product($car_id);
+            $attributes = $product->get_attributes(); // Get all attributes
+            $attributes_list = array();
+
+            foreach ($attributes as $attribute) {
+                $name = $attribute->get_name(); // Attribute name
+                $options = $attribute->get_options(); // Attribute values
+                // Process or display the attribute as needed
+                // Prepare an array to hold the option names
+                $option_names = array();
+
+                foreach ($options as $option) {
+                    // Get the term object for the option
+                    $term = get_term_by('id', $option, $attribute->get_name());
+
+                    if ($term) {
+                        $option_names[] = $term->name; // Get the term name
+                    }
+                }
+                $attributes_list[] = array($name => $option_names);
+            }
+            // Check if the product exists
+            if ($product) {
+                $booking_data = array(
+                    'id' => $post->ID,
+                    'reserve_price' => get_post_meta($post->ID, 'reserve_price', true),
+                    'start_date' => get_post_meta($post->ID, 'start_date', true),
+                    'end_date' => get_post_meta($post->ID, 'end_date', true),
+                    'province' => get_post_meta($post->ID, 'province', true),
+                    'status' => get_post_meta($post->ID, 'status', true), // Assuming you have a 'status' meta key
+                    'tracking_id' => get_post_meta($post->ID, 'tracking_id', true), // Assuming you have a 'tracking_id' meta key
+                    'car_details' => array(
+                        'id' => $product->get_id(),
+                        'name' => $product->get_name(),
+                        'price' => $product->get_price(),
+                        'image' => wp_get_attachment_image_url($product->get_image_id(), 'full'), // Get the main image URL
+                        'sku' => $product->get_sku(),
+                        'attributes' => $attributes_list
+                        // Add any other relevant product data you want to return
+                    ),
+                );
+                $data[] = $booking_data;
+            } else {
+                // Handle the case where the product does not exist
+                $data[] = array(
+                    'id' => $post->ID,
+                    'error' => 'Car not found for this booking.',
+                );
+            }
+        }
+
+        return array(
+            'data' => $data,
+            'message' => 'successful',
+        );
+    } else {
+        return new WP_Error('no_booking_found', 'No bookings found for this user', array('status' => 404));
+    }
+}
+function get_tracking_status(WP_REST_Request $request)
+{
+    $tracking_id = $request->get_param('tracking_id');
+
+    if (empty($tracking_id)) {
+        return new WP_Error('no_tracking_id', 'Tracking ID is required', array('status' => 400));
+    }
+
+    $args = array(
+        'post_type' => 'booking', // Your custom post type
+        'meta_query' => array(
+            array(
+                'key' => 'tracking_id', // The meta key where tracking ID is stored
+                'value' => $tracking_id,
+                'compare' => '='
+            )
+        ),
+        'posts_per_page' => 1 // Limit to one result
+    );
+
+    $query = new WP_Query($args);
+
+    if ($query->have_posts()) {
+        $booking = $query->posts[0]; // Get the first booking found
+        $status = get_post_meta($booking->ID, 'status', true); // Assuming you have a 'status' meta key
+
+        return array(
+            'tracking_id' => $tracking_id,
+            'status' => $status,
+            'message' => 'Booking found.',
+        );
+    } else {
+        return new WP_Error('no_booking_found', 'No booking found with that Tracking ID', array('status' => 404));
     }
 }
 
@@ -178,7 +302,7 @@ function check_car_availability($car_id, $start_date = null, $end_date = null)
     return false;
 }
 
-function create_car_booking($car_id, $start_date, $end_date, $province)
+function create_car_booking($car_id, $start_date, $end_date, $province, $current_user)
 {
     global $iran_provinces;
     $product = wc_get_product($car_id);
@@ -206,6 +330,7 @@ function create_car_booking($car_id, $start_date, $end_date, $province)
         return false;
     }
 
+    $tracking_id = generate_tracking_id();
     // Save custom fields for the booking
     update_post_meta($booking_id, 'car_id', $car_id);
     update_post_meta($booking_id, 'car_name', $product->get_name());
@@ -213,8 +338,11 @@ function create_car_booking($car_id, $start_date, $end_date, $province)
     update_post_meta($booking_id, 'start_date', $start_date);
     update_post_meta($booking_id, 'end_date', $end_date);
     update_post_meta($booking_id, 'province', $province_details);
+    update_post_meta($booking_id, 'status', 'pending');
+    update_post_meta($booking_id, 'tracking_id', $tracking_id);
+    update_post_meta($booking_id, 'user_id', $current_user->ID);
 
-    return true; // Booking created successfully
+    return $tracking_id; // Booking created successfully
 }
 
 function get_booked_dates($car_id)
