@@ -465,7 +465,7 @@ function custom_user_registration(WP_REST_Request $request)
 
 function generate_jwt_token($user_id)
 {
-    $secret_key = "dasf322fewrf2q3fsdfw23r"; // Replace with your secret key
+    $secret_key = JWT_AUTH_SECRET_KEY; // Replace with your secret key
     $issuer = get_bloginfo('url'); // Issuer
     $audience = get_bloginfo('url'); // Audience
     $issued_at = time(); // Issued at
@@ -504,7 +504,7 @@ function get_current_user_from_token(WP_REST_Request $request)
     $token = $matches[1];
 
     try {
-        $decoded = JWT::decode($token, new Key("dasf322fewrf2q3fsdfw23r", 'HS256'));
+        $decoded = JWT::decode($token, new Key(JWT_AUTH_SECRET_KEY, 'HS256'));
     } catch (Exception $e) {
         return new WP_Error('invalid_token', 'توکن نامعتبر است: ' . $e->getMessage(), ['status' => 403]);
     }
