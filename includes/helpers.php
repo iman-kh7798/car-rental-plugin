@@ -1,16 +1,56 @@
 <?php
 
+use \Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
 function get_date_interval($start_date, $end_date)
 {
     return (new DateTime($start_date))->diff(new DateTime($end_date))->days;
 }
 
+function get_authorization_header()
+{
+    if (function_exists('getallheaders')) {
+        $headers = getallheaders();
+        if (isset($headers['Authorization'])) {
+            return trim($headers['Authorization']);
+        }
+    }
+
+    if (isset($_SERVER['HTTP_AUTHORIZATION'])) { // Apache
+        return trim($_SERVER['HTTP_AUTHORIZATION']);
+    }
+
+    if (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) { // NGINX or FastCGI
+        return trim($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+    }
+
+    return null;
+}
+
 function custom_permission_callback()
 {
-    if (!is_user_logged_in()) {
-        return new WP_Error('rest_forbidden', __('You must be logged in to book a car.'), array('status' => 401));
+    $auth = get_authorization_header();
+
+    if (!$auth || !preg_match('/Bearer\s(\S+)/', $auth, $matches)) {
+        return new WP_Error('no_token', 'توکن JWT ارسال نشده یا فرمت آن صحیح نیست.', ['status' => 403]);
     }
-    return true; // User is logged in
+
+    $token = $matches[1];
+
+    try {
+        $decoded = JWT::decode($token, new Key(JWT_AUTH_SECRET_KEY, 'HS256'));
+    } catch (Exception $e) {
+        return new WP_Error('jwt_invalid', 'توکن نامعتبر است: ' . $e->getMessage(), ['status' => 403]);
+    }
+
+    $user_id = $decoded->data->user->id ?? null;
+
+    if (!$user_id || !get_userdata($user_id)) {
+        return new WP_Error('jwt_user_invalid', 'کاربر یافت نشد.', ['status' => 404]);
+    }
+
+    return true;
 }
 
 // Helper function to validate date format

@@ -19,6 +19,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/users-cellphone.php';
 require_once __DIR__ . '/vendor/autoload.php';
 
 use \Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
 
 function get_rental_cars()
