@@ -404,8 +404,12 @@ function custom_user_registration(WP_REST_Request $request)
 {
     $username = sanitize_user($request->get_param('username'));
     $password = sanitize_text_field($request->get_param('password'));
+    $first_name  = sanitize_text_field($request->get_param('first_name'));
+    $last_name  = sanitize_text_field($request->get_param('last_name'));
+    $cellphone  = sanitize_text_field($request->get_param('cellphone'));
+    $national_code = sanitize_text_field($request->get_param('national_code'));
     $email = sanitize_email($request->get_param('email'));
-
+    $reside_outside_iran = filter_var($request->get_param('reside_outside_iran'), FILTER_VALIDATE_BOOLEAN);
     // Validate email format
     if (!filter_var($request->get_param('email'), FILTER_VALIDATE_EMAIL)) {
         return new WP_Error('invalid_email', 'Email format is invalid. Please provide a valid email address.', array('status' => 400));
@@ -428,6 +432,27 @@ function custom_user_registration(WP_REST_Request $request)
     // Optionally, you can set the user role
     $user = new WP_User($user_id);
     $user->set_role('subscriber');
+    if ($first_name) {
+        update_user_meta($user_id, 'first_name', $first_name);
+    }
+
+    if ($last_name) {
+        update_user_meta($user_id, 'last_name', $last_name);
+    }
+
+    if ($national_code) {
+        update_user_meta($user_id, 'national_code', $national_code);
+    }
+
+    if ($cellphone) {
+        update_user_meta($user_id, 'cellphone', $cellphone);
+    }
+    update_user_meta($user_id, 'reside_outside_iran', $reside_outside_iran ? 1 : 0);
+
+    wp_update_user([
+        'ID' => $user_id,
+        'display_name' => trim($first_name . ' ' . $last_name),
+    ]);
 
     // Generate JWT token
     $token = generate_jwt_token($user_id);
@@ -440,25 +465,68 @@ function custom_user_registration(WP_REST_Request $request)
 
 function generate_jwt_token($user_id)
 {
-    $secret_key = JWT_AUTH_SECRET_KEY; // Replace with your secret key
+    $secret_key = "dasf322fewrf2q3fsdfw23r"; // Replace with your secret key
     $issuer = get_bloginfo('url'); // Issuer
     $audience = get_bloginfo('url'); // Audience
     $issued_at = time(); // Issued at
     $expiration_time = $issued_at + (DAY_IN_SECONDS * 7); // jwt valid for 1 week
-
+    $user = get_userdata($user_id);
     $payload = array(
         'iat' => $issued_at,
         'exp' => $expiration_time,
         'iss' => $issuer,
         'aud' => $audience,
         'data' => array(
-            'user' => array('id' => $user_id)
+            'user' => array(
+                'id' => $user_id,
+                'email' => $user->user_email,
+                'first_name' => get_user_meta($user_id, 'first_name', true),
+                'last_name' => get_user_meta($user_id, 'last_name', true),
+                'cellphone' => get_user_meta($user_id, 'cellphone', true),
+                'national_code' => get_user_meta($user_id, 'national_code', true),
+                'reside_outside_iran' => (bool) get_user_meta($user_id, 'reside_outside_iran', true),
+            )
         ),
     );
 
     $jwt = JWT::encode($payload, $secret_key, 'HS256');
     return $jwt;
 }
+
+function get_current_user_from_token(WP_REST_Request $request)
+{
+    $auth = $request->get_header('authorization');
+
+    if (!$auth || !preg_match('/Bearer\s(\S+)/', $auth, $matches)) {
+        return new WP_Error('no_token', 'توکن ارسال نشده یا فرمت آن صحیح نیست.', ['status' => 403]);
+    }
+
+    $token = $matches[1];
+
+    try {
+        $decoded = JWT::decode($token, new Key("dasf322fewrf2q3fsdfw23r", 'HS256'));
+    } catch (Exception $e) {
+        return new WP_Error('invalid_token', 'توکن نامعتبر است: ' . $e->getMessage(), ['status' => 403]);
+    }
+
+    $user_id = $decoded->data->user->id ?? null;
+
+    if (!$user_id || !get_userdata($user_id)) {
+        return new WP_Error('invalid_user', 'کاربر یافت نشد.', ['status' => 404]);
+    }
+
+    return [
+        'id' => $user_id,
+        'username' => $decoded->data->user->username ?? '',
+        'email' => $decoded->data->user->email ?? '',
+        'first_name' => $decoded->data->user->first_name ?? '',
+        'last_name' => $decoded->data->user->last_name ?? '',
+        'cellphone' => $decoded->data->user->cellphone ?? '',
+        'national_code' => $decoded->data->user->national_code ?? '',
+        'reside_outside_iran' => $decoded->data->user->reside_outside_iran ?? false,
+    ];
+}
+
 
 // require_once plugin_dir_path(__FILE__) . 'includes/admin-functions.php';
 require_once plugin_dir_path(__FILE__) . 'routes.php';
