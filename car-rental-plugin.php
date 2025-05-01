@@ -511,20 +511,20 @@ function get_current_user_from_token(WP_REST_Request $request)
     }
 
     $user_id = $decoded->data->user->id ?? null;
-
-    if (!$user_id || !get_userdata($user_id)) {
+    $user = get_userdata($user_id);
+    if (!$user_id || !$user) {
         return new WP_Error('invalid_user', 'کاربر یافت نشد.', ['status' => 404]);
     }
 
     return [
-        'id' => $user_id,
-        'username' => $decoded->data->user->username ?? '',
-        'email' => $decoded->data->user->email ?? '',
-        'first_name' => $decoded->data->user->first_name ?? '',
-        'last_name' => $decoded->data->user->last_name ?? '',
-        'cellphone' => $decoded->data->user->cellphone ?? '',
-        'national_code' => $decoded->data->user->national_code ?? '',
-        'reside_outside_iran' => $decoded->data->user->reside_outside_iran ?? false,
+        'id' => $user->ID,
+        'username' => $user->user_login,
+        'email' => $user->user_email,
+        'first_name' => get_user_meta($user_id, 'first_name', true),
+        'last_name' => get_user_meta($user_id, 'last_name', true),
+        'cellphone' => get_user_meta($user_id, 'cellphone', true),
+        'national_code' => get_user_meta($user_id, 'national_code', true),
+        'reside_outside_iran' => (bool) get_user_meta($user_id, 'reside_outside_iran', true),
     ];
 }
 
